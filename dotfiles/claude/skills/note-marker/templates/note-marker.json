@@ -1,0 +1,18 @@
+{
+  "claude_dir": ".claude",
+  "config_file": "note-marker.json",
+  "notes_dir": "notes/testing",
+  "working_file": "WORKING.md",
+  "manifest_file": "MANIFEST.json",
+  "archive_dir": "archive",
+  "archive_name_template": "{MM}-{DD}_phase{phase}.md",
+  "planning_dir": ".planning",
+  "project_file": "PROJECT.md",
+  "roadmap_file": "ROADMAP.md",
+  "requirements_file": "REQUIREMENTS.md",
+  "state_file": "STATE.md",
+  "phases_dir": "phases",
+  "context_files": [],
+  "max_context_chars_per_file": 20000,
+  "archive_keep": 5
+}
