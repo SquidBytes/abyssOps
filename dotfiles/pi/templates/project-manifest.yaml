@@ -1,0 +1,87 @@
+# Project manifest template
+#
+# Copy this file to <your-project>/.pi/project.yaml and fill in. The GSD
+# skills read this manifest to learn project-specific paths, repo shape,
+# commit conventions, and policy toggles. Without it, skills fall back to
+# generic defaults and warn that the project hasn't been bootstrapped.
+#
+# Easiest way to create one: run `gsd-install-project` skill from a Pi
+# session inside the project root — it asks the questions and writes the
+# file for you.
+#
+# All paths are relative to the project root unless otherwise noted.
+
+# Display name shown in agent-facing messages.
+name: <ProjectName>
+
+# Planning subsystem detection. Set planning.root to null if this project
+# does not use a phase-style planning workflow — skills that depend on it
+# will be inactive in that case.
+planning:
+  root: .planning/                  # e.g. ".planning/", "docs/plans/", or null
+  working_notes: dev/notes/WORKING.md   # free-form note dump file; null disables the `note-marker` skill (/marknotes)
+
+# Repository shape. Determines where code commits land vs planning commits.
+#   mono       — single repo, code and docs intermixed
+#   nested     — code lives in a subdirectory that is its own git repo
+#                (e.g. parent-repo/code-subdir/ where code-subdir/ is the
+#                public mirror and the parent holds private planning docs)
+#   submodule  — code lives in a git submodule
+#   multi      — multiple peer repos under a shared parent (use code_root
+#                for the primary one and document the rest in AGENTS.md)
+repo:
+  shape: mono
+  code_root: ""                     # path to code root from project root; empty for mono
+  push_gate: agent_never            # agent_never | confirm_per_push | allowed
+
+# Commit message rules. The `gsd-commit-guard` skill lints proposed commit
+# messages against these.
+commits:
+  format: "<type>(<scope>): <subject>"
+  subject_max: 72
+  body_max_sentences: 2
+  allowed_types: [feat, fix, docs, style, refactor, perf, test, build, ci, chore]
+  scope_pattern: '^[0-9]+(-[0-9]+)?$'   # bare phase or phase-plan; adjust for your conventions
+  # Literal strings that must not appear anywhere in a commit subject or body
+  # in this project. Common uses: leak-prone path prefixes, internal codenames.
+  forbidden_strings: []
+  # Regex patterns forbidden in commits — finding IDs, decision tags, etc.
+  # These rot the moment planning context is gone, so we block them.
+  forbidden_patterns:
+    - 'D-[0-9]+'
+    - 'WR-[0-9]+'
+    - 'CR-[0-9]+'
+    - 'IN-[0-9]+'
+    - 'WS-[0-9]+'
+    - 'Phase [0-9]+'
+
+# Branching. Used by `gsd-execute-phase` to validate the current branch
+# before dispatching sub-agents.
+branching:
+  main: main
+  integration: null                 # e.g. "dev" for projects with a release/dev split; null for trunk-based
+  version_branch_pattern: 'v[0-9]+\.[0-9]+'  # version branches like v0.4
+  work_branch_pattern: '^(feat|fix|docs|chore|refactor)-[a-z0-9-]+$'
+
+# PII / privacy policy. Enables an extra commit-time scan that warns when
+# tokens matching the listed categories appear in staged content.
+pii:
+  enabled: false
+  categories: []                    # any of: vins, names, emails, addresses, gps_coords, phone_numbers
+  placeholders:                     # what to suggest when PII is detected
+    vin: "<your-vin>"
+    name: "<owner>"
+    email: "owner@example.com"
+    address: "<your-address>"
+
+# Optional MCP routing hints. When the user asks a database question
+# without specifying a target, skills consult this list and ask the user
+# which environment to query before running anything.
+mcp:
+  databases: []                     # e.g. [{ name: "postgres-prod", role: "read-only investigation" }]
+
+# Memory directory hint. Where Pi's per-project memory lives for this
+# project. Generally derived automatically by Pi; override here only if
+# your setup uses a non-default location.
+memory:
+  root: null
