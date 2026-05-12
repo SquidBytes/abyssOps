@@ -21,6 +21,8 @@ const {
   sha256,
   readManifest,
   writeManifest,
+  renderStatusLines,
+  buildManifestWorking,
 } = require('./lib');
 
 function parseArgs(argv) {
@@ -72,15 +74,15 @@ function apply(workingFile, updatesPath, projectRoot) {
     if (!item) { counts.skipped++; continue; }
     if (item.reviewed) { counts.skipped++; continue; }
     const indent = getContinuationIndent(item.first_line);
-    const statusLine = indent + upd.status_line.trim();
-    insertions.push({ after: item.end_line, statusLine });
+    const statusLines = renderStatusLines(upd, config).map(line => indent + line);
+    insertions.push({ after: item.end_line, statusLines });
     counts.applied++;
   }
 
   // Apply in reverse order of `after` so earlier indices don't shift.
   insertions.sort((a, b) => b.after - a.after);
   for (const ins of insertions) {
-    lines.splice(ins.after + 1, 0, ins.statusLine);
+    lines.splice(ins.after + 1, 0, ...ins.statusLines);
   }
 
   const newContent = lines.join('\n');
@@ -88,14 +90,25 @@ function apply(workingFile, updatesPath, projectRoot) {
 
   // Update manifest
   const manifest = readManifest(paths.manifestFile);
-  const reparsed = parseItems(newContent);
-  manifest.working = {
-    file: path.relative(paths.notesDir, workingFile),
-    hash: sha256(newContent),
-    item_count: reparsed.length,
-    unreviewed: reparsed.filter(i => !i.reviewed).length,
-    last_reviewed: new Date().toISOString(),
+  const context = loadContext(paths, config);
+  manifest.version = 2;
+  manifest.active_file = path.basename(paths.workingFile);
+  manifest.config = {
+    config_file: paths.configPath ? path.relative(projectRoot, paths.configPath) : null,
+    status_marker_format: config.status_marker_format || DEFAULT_CONFIG.status_marker_format,
+    notes_dir: path.relative(projectRoot, paths.notesDir),
+    planning_dir: paths.planningDir ? path.relative(projectRoot, paths.planningDir) : null,
   };
+  manifest.working = buildManifestWorking(projectRoot, paths, workingFile, newContent, {
+    reference_files: context.reference_files.map(f => ({
+      path: f.path,
+      role: f.role,
+      label: f.label,
+      project: f.project,
+      truncated: f.truncated,
+    })),
+    projects: context.projects,
+  });
   writeManifest(paths.manifestFile, manifest);
 
   process.stdout.write(JSON.stringify({
@@ -194,21 +207,38 @@ function archive(workingFile, projectRoot, phaseOverride) {
   const manifest = readManifest(paths.manifestFile);
   const archived = fs.readFileSync(archivePath, 'utf8');
   const reparsedArchive = parseItems(archived);
+  const context = loadContext(paths, config);
+  manifest.version = 2;
+  manifest.active_file = path.basename(paths.workingFile);
+  manifest.config = {
+    config_file: paths.configPath ? path.relative(projectRoot, paths.configPath) : null,
+    status_marker_format: config.status_marker_format || DEFAULT_CONFIG.status_marker_format,
+    notes_dir: path.relative(projectRoot, paths.notesDir),
+    planning_dir: paths.planningDir ? path.relative(projectRoot, paths.planningDir) : null,
+  };
   manifest.archives = (manifest.archives || []).filter(a => a.file !== archiveName);
   manifest.archives.unshift({
     file: archiveName,
+    path: path.relative(projectRoot, archivePath),
     date: now.toISOString().split('T')[0],
     phase,
     hash: sha256(archived),
     item_count: reparsedArchive.length,
+    status_counts: buildManifestWorking(projectRoot, paths, archivePath, archived, {
+      last_reviewed: null,
+    }).status_counts,
   });
-  manifest.working = {
-    file: path.relative(paths.notesDir, workingFile),
-    hash: sha256(fs.readFileSync(workingFile, 'utf8')),
-    item_count: 0,
-    unreviewed: 0,
+  manifest.working = buildManifestWorking(projectRoot, paths, workingFile, fs.readFileSync(workingFile, 'utf8'), {
+    reference_files: context.reference_files.map(f => ({
+      path: f.path,
+      role: f.role,
+      label: f.label,
+      project: f.project,
+      truncated: f.truncated,
+    })),
+    projects: context.projects,
     last_reviewed: null,
-  };
+  });
   writeManifest(paths.manifestFile, manifest);
 
   process.stdout.write(JSON.stringify({

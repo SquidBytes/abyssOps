@@ -58,6 +58,12 @@ function main() {
     working_file: path.relative(projectRoot, workingFile),
     project_root: projectRoot,
     config_file: paths.configPath ? path.relative(projectRoot, paths.configPath) : null,
+    config: {
+      status_marker_format: config.status_marker_format,
+      notes_dir: path.relative(projectRoot, paths.notesDir),
+      planning_dir: paths.planningDir ? path.relative(projectRoot, paths.planningDir) : null,
+      projects: context.projects,
+    },
     refresh: args.refresh,
     total_items: allItems.length,
     unreviewed_count: allItems.filter(i => !i.reviewed).length,
@@ -70,15 +76,16 @@ function main() {
     })),
     context: {
       current_phase: context.current_phase,
+      projects: context.projects,
       planned_phases: context.planned_phases.map(p => ({
-        num: p.num, name: p.name, goal: p.goal || null,
+        num: p.num, name: p.name, project: p.project || null, goal: p.goal || null,
         plan_status: p.plan_status || null, blurb: p.blurb || null,
       })),
       in_progress_phases: context.in_progress_phases.map(p => ({
-        num: p.num, name: p.name, goal: p.goal || null, plan_status: p.plan_status || null,
+        num: p.num, name: p.name, project: p.project || null, goal: p.goal || null, plan_status: p.plan_status || null,
       })),
       completed_phases: context.completed_phases.map(p => ({
-        num: p.num, name: p.name,
+        num: p.num, name: p.name, project: p.project || null,
       })),
       requirements: context.requirements,
       reference_files: context.reference_files,

@@ -64,8 +64,11 @@ review" and stop. If `--archive` was requested, continue to step 6.
 ### 4. Classify each item
 
 For every item in `payload.items`, produce one `**STATUS** [#N]:` line using
-`payload.context` and especially `payload.context.reference_files`. These
-rules apply in order; first match wins:
+`payload.context` and especially `payload.context.reference_files`. The
+postprocessor will convert that line to Markdown, HTML, or both according to
+`payload.config.status_marker_format`; do not hand-write HTML unless the
+working file already uses an HTML-only marker and you are preserving it.
+These rules apply in order; first match wins:
 
 Every STATUS line must begin with `**STATUS** [#N]:` where `N` is the item's `id` from the payload.
 
@@ -91,6 +94,9 @@ integer *after the highest planned phase number* in `context.planned_phases`.
 Use decimals (e.g. `26.1`) only for SUB-PHASE tags. Mark the phase `(NEW)`
 when it doesn't exist; mark it `(planned)` when you're fitting into an existing
 entry.
+
+If `payload.context.projects` contains multiple projects, include the project
+name in the evidence when it avoids ambiguity, e.g. `TRACKED — api Phase 3`.
 
 **Never modify ROADMAP.md, REQUIREMENTS.md, STATE.md, PROJECT.md, phase files,
 or any configured planning/context file.**
@@ -153,6 +159,7 @@ Summarize succinctly:
 - Never write to any file outside the configured `notes_dir`, except when `--init --write-config` is explicitly requested.
 - Never mutate planning files (ROADMAP, REQUIREMENTS, STATE, or phase dirs).
 - Running `/marknotes` twice without `--refresh` is a no-op on already-marked items.
+- HTML markers use `<!-- NOTE-MARKER {...} -->` and count as reviewed items.
 
 ## Per-project config
 
@@ -168,16 +175,30 @@ also set `NOTE_MARKER_CONFIG` or pass `--config <path>`:
   "manifest_file": "MANIFEST.json",
   "archive_dir": "archive",
   "archive_name_template": "{MM}-{DD}_phase{phase}.md",
+  "status_marker_format": "markdown",
   "planning_dir": ".planning",
   "project_file": "PROJECT.md",
   "roadmap_file": "ROADMAP.md",
   "requirements_file": "REQUIREMENTS.md",
   "state_file": "STATE.md",
   "phases_dir": "phases",
+  "planning_files": [],
   "context_files": [],
+  "projects": [],
   "max_context_chars_per_file": 20000,
   "archive_keep": 5
 }
 ```
 
 If no config is present, defaults in `scripts/lib.js` apply.
+
+Key refinements:
+
+- `status_marker_format`: `markdown` (default), `html`, or `both`.
+- `planning_dir`: set to `null` when a project has no GSD-style planning docs.
+- `planning_files`: extra planning files inside `planning_dir`.
+- `context_files`: arbitrary project-root-relative files, or objects like
+  `{ "path": "docs/decisions.md", "role": "context", "label": "Decisions" }`.
+- `projects`: extra project contexts for monorepos or paired repos. Each entry
+  can override `root`, `planning_dir`, `project_file`, `roadmap_file`,
+  `requirements_file`, `state_file`, `planning_files`, and `context_files`.

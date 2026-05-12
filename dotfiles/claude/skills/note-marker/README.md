@@ -19,8 +19,9 @@ shipped and you forgot. Some are genuinely new. Figuring out which is which
 by hand every time is the friction this skill removes.
 
 `/marknotes` hands each unreviewed item to an agent that reads your project's
-configured planning/context files, classifies it, and writes a
-`**STATUS** [#N]:` line directly under it. Run `/marknotes --archive` when you're ready to close
+configured planning/context files, classifies it, and writes a status marker
+directly under it. Markdown `**STATUS** [#N]:` lines remain the default; config
+can switch to HTML markers or write both. Run `/marknotes --archive` when you're ready to close
 out the current batch and start fresh — your file is renamed to
 `MM-DD_phaseN.md`, a new `WORKING.md` is scaffolded, and older archives roll
 off into a subfolder.
@@ -84,15 +85,18 @@ If your project doesn't use the defaults (`notes/testing/` +
   "manifest_file": "MANIFEST.json",
   "archive_dir": "archive",
   "archive_name_template": "{YYYY}-{MM}-{DD}_phase{phase}.md",
+  "status_marker_format": "markdown",
   "planning_dir": ".planning",
   "project_file": "PROJECT.md",
   "roadmap_file": "ROADMAP.md",
   "requirements_file": "REQUIREMENTS.md",
   "state_file": "STATE.md",
   "phases_dir": "phases",
+  "planning_files": [],
   "context_files": [
     "docs/product-notes.md"
   ],
+  "projects": [],
   "max_context_chars_per_file": 20000,
   "archive_keep": 5
 }
@@ -135,7 +139,7 @@ top of the file so you see them every time you open a fresh notes file.
 ```
 notes/testing/
 ├── WORKING.md              ← your single working file. write here.
-├── MANIFEST.json           ← tool-managed bookkeeping (committed)
+├── MANIFEST.json           ← tool-managed context index (committed)
 ├── 04-11_phase26.md        ← most recent archive
 ├── 04-09_phase25.md
 ├── 04-05_phase24.md
@@ -145,6 +149,10 @@ notes/testing/
     ├── 03-15_phase20.md    ← pushed out of the rolling 5, still on disk
     └── ...
 ```
+
+The manifest stores the active file, counts by status, reviewed item summaries,
+reference file labels, configured projects, and archive history so future agent
+runs can orient quickly without scanning every old note.
 
 The rolling window is set by `archive_keep` in config (default: 5). Older
 archives go into `archive/` — **never deleted**, just moved out of the way.
@@ -308,6 +316,11 @@ dotfiles/claude/skills/note-marker/
 All scripts are zero-dependency Node — only stdlib. No `npm install` needed,
 works on any machine with Node ≥ 14.
 
+The skill wrapper is for Claude Code, but the scripts and manifest are
+agent-agnostic. Codex or another agent can run `preprocess.js`, write the same
+updates JSON, and call `postprocess.js apply` without needing Claude-specific
+state.
+
 ---
 
 ## Config reference
@@ -327,26 +340,70 @@ All keys are optional; missing keys fall back to defaults in `scripts/lib.js`:
   "manifest_file": "MANIFEST.json",
   "archive_dir": "archive",
   "archive_name_template": "{MM}-{DD}_phase{phase}.md",
+  "status_marker_format": "markdown",
   "planning_dir": ".planning",
   "project_file": "PROJECT.md",
   "roadmap_file": "ROADMAP.md",
   "requirements_file": "REQUIREMENTS.md",
   "state_file": "STATE.md",
   "phases_dir": "phases",
+  "planning_files": [],
   "context_files": [],
+  "projects": [],
   "max_context_chars_per_file": 20000,
   "archive_keep": 5
 }
 ```
 
+`status_marker_format` controls what gets inserted under each reviewed item:
+
+| Value | Output |
+|---|---|
+| `markdown` | Visible `**STATUS** [#N]: ...` line. Default. |
+| `html` | Invisible `<!-- NOTE-MARKER {...} -->` comment marker. |
+| `both` | Visible Markdown line plus machine-readable HTML marker. |
+
 `context_files` is for extra project-specific Markdown or text files the
 agent should read when classifying notes. Paths are project-root relative
-unless absolute.
+unless absolute. Entries can also be objects:
+
+```json
+{
+  "path": "docs/product-decisions.md",
+  "role": "context",
+  "label": "Product Decisions"
+}
+```
+
+`planning_files` adds extra files inside `planning_dir`. `projects` lets one
+working file classify notes against multiple project contexts:
+
+```json
+{
+  "projects": [
+    {
+      "name": "api",
+      "root": "../api",
+      "planning_dir": "docs/planning",
+      "roadmap_file": "roadmap.md",
+      "state_file": null,
+      "context_files": [
+        { "path": "docs/architecture.md", "label": "API Architecture" }
+      ]
+    },
+    {
+      "name": "mobile",
+      "root": "../mobile",
+      "planning_dir": null,
+      "context_files": ["docs/backlog.md"]
+    }
+  ]
+}
+```
 
 If your project has no planning directory at all, the agent falls back to
-classifying items purely from their text content — expect more
-`NOT TRACKED → Proposed Phase (NEW)` outcomes since there's nothing to match
-against.
+classifying items from `context_files` and item text. Set `"planning_dir": null`
+to make that explicit.
 
 ---
 

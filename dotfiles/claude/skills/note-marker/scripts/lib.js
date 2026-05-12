@@ -16,13 +16,16 @@ const DEFAULT_CONFIG = {
   manifest_file: 'MANIFEST.json',
   archive_dir: 'archive',
   archive_name_template: '{MM}-{DD}_phase{phase}.md',
+  status_marker_format: 'markdown',
   planning_dir: '.planning',
   project_file: 'PROJECT.md',
   roadmap_file: 'ROADMAP.md',
   requirements_file: 'REQUIREMENTS.md',
   state_file: 'STATE.md',
   phases_dir: 'phases',
+  planning_files: [],
   context_files: [],
+  projects: [],
   max_context_chars_per_file: 20000,
   archive_keep: 5,
 };
@@ -59,20 +62,107 @@ function resolveNotesPath(notesDir, value) {
   return path.isAbsolute(value) ? path.resolve(value) : path.resolve(notesDir, value);
 }
 
+function uniqByPath(entries) {
+  const seen = new Set();
+  const out = [];
+  for (const entry of entries) {
+    if (!entry || !entry.path) continue;
+    if (seen.has(entry.path)) continue;
+    seen.add(entry.path);
+    out.push(entry);
+  }
+  return out;
+}
+
+function asArray(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function normalizeContextEntry(projectRoot, entry, defaults = {}) {
+  if (!entry) return null;
+  if (typeof entry === 'string') {
+    const baseRoot = defaults.root || projectRoot;
+    return {
+      path: path.isAbsolute(entry) ? path.resolve(entry) : path.resolve(baseRoot, entry),
+      role: defaults.role || 'context',
+      label: defaults.label || entry,
+      project: defaults.project || null,
+    };
+  }
+  const baseRoot = entry.root
+    ? resolveProjectPath(projectRoot, entry.root)
+    : (defaults.root || projectRoot);
+  const rawPath = entry.path || entry.file;
+  if (!rawPath) return null;
+  return {
+    path: path.isAbsolute(rawPath) ? path.resolve(rawPath) : path.resolve(baseRoot, rawPath),
+    role: entry.role || defaults.role || 'context',
+    label: entry.label || rawPath,
+    project: entry.project || defaults.project || null,
+  };
+}
+
+function defaultPlanningEntries(projectRoot, config, projectName = null, projectOverride = {}) {
+  const root = projectOverride.root
+    ? resolveProjectPath(projectRoot, projectOverride.root)
+    : projectRoot;
+  const planningDir = projectOverride.planning_dir !== undefined
+    ? projectOverride.planning_dir
+    : config.planning_dir;
+  if (!planningDir) return [];
+
+  const files = [
+    ['project', projectOverride.project_file !== undefined ? projectOverride.project_file : config.project_file],
+    ['roadmap', projectOverride.roadmap_file !== undefined ? projectOverride.roadmap_file : config.roadmap_file],
+    ['requirements', projectOverride.requirements_file !== undefined ? projectOverride.requirements_file : config.requirements_file],
+    ['state', projectOverride.state_file !== undefined ? projectOverride.state_file : config.state_file],
+  ];
+
+  const entries = [];
+  for (const [role, fileName] of files) {
+    if (!fileName) continue;
+    entries.push({
+      path: path.resolve(root, planningDir, fileName),
+      role,
+      label: path.join(planningDir, fileName),
+      project: projectName,
+    });
+  }
+
+  for (const entry of asArray(projectOverride.planning_files || config.planning_files)) {
+    entries.push(normalizeContextEntry(projectRoot, entry, {
+      root: path.resolve(root, planningDir),
+      role: 'planning',
+      project: projectName,
+    }));
+  }
+
+  return entries;
+}
+
 function resolvePaths(projectRoot, config) {
   const claudeDir = resolveProjectPath(projectRoot, config.claude_dir);
   const notesDir = resolveProjectPath(projectRoot, config.notes_dir);
-  const planningDir = resolveProjectPath(projectRoot, config.planning_dir);
-  const phasesDir = resolveNotesPath(planningDir, config.phases_dir);
-  const configuredContext = Array.isArray(config.context_files) ? config.context_files : [];
-  const defaultContext = [
-    config.project_file && path.join(config.planning_dir, config.project_file),
-    config.roadmap_file && path.join(config.planning_dir, config.roadmap_file),
-    config.requirements_file && path.join(config.planning_dir, config.requirements_file),
-    config.state_file && path.join(config.planning_dir, config.state_file),
-  ].filter(Boolean);
-  const contextPaths = [...new Set([...defaultContext, ...configuredContext])]
-    .map(p => resolveProjectPath(projectRoot, p));
+  const planningDir = config.planning_dir ? resolveProjectPath(projectRoot, config.planning_dir) : null;
+  const phasesDir = planningDir ? resolveNotesPath(planningDir, config.phases_dir) : null;
+  const projects = asArray(config.projects).map((project, idx) => {
+    const name = project.name || project.id || `project-${idx + 1}`;
+    const root = project.root ? resolveProjectPath(projectRoot, project.root) : projectRoot;
+    return { ...project, name, root };
+  });
+
+  const defaultEntries = defaultPlanningEntries(projectRoot, config);
+  const configuredContext = asArray(config.context_files)
+    .map(entry => normalizeContextEntry(projectRoot, entry));
+  const projectEntries = projects.flatMap(project => [
+    ...defaultPlanningEntries(projectRoot, config, project.name, project),
+    ...asArray(project.context_files).map(entry => normalizeContextEntry(projectRoot, entry, {
+      root: project.root,
+      project: project.name,
+    })),
+  ]);
+  const contextEntries = uniqByPath([...defaultEntries, ...configuredContext, ...projectEntries]);
 
   return {
     projectRoot,
@@ -84,11 +174,13 @@ function resolvePaths(projectRoot, config) {
     archiveDir: resolveNotesPath(notesDir, config.archive_dir),
     planningDir,
     phasesDir,
-    projectPath: resolveNotesPath(planningDir, config.project_file),
-    roadmapPath: resolveNotesPath(planningDir, config.roadmap_file),
-    requirementsPath: resolveNotesPath(planningDir, config.requirements_file),
-    statePath: resolveNotesPath(planningDir, config.state_file),
-    contextPaths,
+    projectPath: planningDir ? resolveNotesPath(planningDir, config.project_file) : null,
+    roadmapPath: planningDir ? resolveNotesPath(planningDir, config.roadmap_file) : null,
+    requirementsPath: planningDir ? resolveNotesPath(planningDir, config.requirements_file) : null,
+    statePath: planningDir ? resolveNotesPath(planningDir, config.state_file) : null,
+    projects,
+    contextEntries,
+    contextPaths: contextEntries.map(entry => entry.path),
   };
 }
 
@@ -110,6 +202,13 @@ function stripHtmlComments(content) {
   let inComment = false;
   while (i < content.length) {
     if (!inComment && content.substr(i, 4) === '<!--') {
+      const end = content.indexOf('-->', i + 4);
+      const comment = end === -1 ? content.slice(i) : content.slice(i, end + 3);
+      if (/^<!--\s*NOTE-MARKER\b/i.test(comment)) {
+        out += comment;
+        i += comment.length;
+        continue;
+      }
       inComment = true;
       i += 4;
     } else if (inComment && content.substr(i, 3) === '-->') {
@@ -127,7 +226,17 @@ function stripHtmlComments(content) {
   return out;
 }
 
+function stripYamlFrontmatter(content) {
+  if (!content.startsWith('---\n')) return content;
+  const end = content.indexOf('\n---', 4);
+  if (end === -1) return content;
+  const closeEnd = content.indexOf('\n', end + 4);
+  const frontmatter = content.slice(0, closeEnd === -1 ? content.length : closeEnd + 1);
+  return frontmatter.replace(/[^\n]/g, ' ') + content.slice(frontmatter.length);
+}
+
 function parseItems(content) {
+  content = stripYamlFrontmatter(content);
   content = stripHtmlComments(content);
   const lines = content.split('\n');
   const items = [];
@@ -144,7 +253,8 @@ function parseItems(content) {
     }
     if (current.lines.length === 0) { current = null; return; }
     const text = current.lines.join('\n');
-    const reviewed = /\*\*STATUS\*\*(?:\s*\[#\d+\])?\s*:/i.test(text);
+    const reviewed = /\*\*STATUS\*\*(?:\s*\[#\d+\])?\s*:/i.test(text)
+      || /<!--\s*NOTE-MARKER\b/i.test(text);
     items.push({
       id: nextId++,
       start_line: current.startLine,
@@ -246,6 +356,71 @@ function readTextLimited(filePath, maxChars) {
   return { text: text.slice(0, maxChars), truncated: true };
 }
 
+function appendRoadmapContext(context, filePath, project = null) {
+  const roadmap = fs.readFileSync(filePath, 'utf8');
+
+  // Extract the phase checklist (top-level summary list)
+  const checklistRe = /-\s*\[([ x])\]\s*\*\*Phase\s+([\d.]+)\s*:\s*([^*]+)\*\*\s*(?:-\s*([^\n]*))?/g;
+  const checklist = {};
+  let m;
+  while ((m = checklistRe.exec(roadmap)) !== null) {
+    const status = m[1] === 'x' ? 'complete' : 'planned';
+    const num = m[2].trim();
+    const name = m[3].trim();
+    const blurb = (m[4] || '').trim();
+    checklist[num] = { num, name, blurb, status, project };
+  }
+
+  // Extract detailed phase sections
+  const sectionRe = /^###\s+Phase\s+([\d.]+)\s*:\s*([^\n]+)$/gm;
+  const sectionPositions = [];
+  while ((m = sectionRe.exec(roadmap)) !== null) {
+    sectionPositions.push({ num: m[1].trim(), name: m[2].trim(), index: m.index });
+  }
+  for (let i = 0; i < sectionPositions.length; i++) {
+    const start = sectionPositions[i].index;
+    const end = i + 1 < sectionPositions.length ? sectionPositions[i + 1].index : roadmap.length;
+    const body = roadmap.slice(start, end);
+    const goalMatch = body.match(/\*\*Goal\*\*:\s*([^\n]+)/i);
+    const planStatusMatch = body.match(/\*\*Plans:?\*\*\s*(\d+)\s*\/\s*(\d+)/i);
+    const reqMatch = body.match(/\*\*Requirements\*\*:\s*([^\n]+)/i);
+    const entry = checklist[sectionPositions[i].num] || { num: sectionPositions[i].num, name: sectionPositions[i].name, status: 'planned', project };
+    entry.name = sectionPositions[i].name;
+    entry.project = project;
+    if (goalMatch) entry.goal = goalMatch[1].trim();
+    if (planStatusMatch) {
+      const done = parseInt(planStatusMatch[1], 10);
+      const total = parseInt(planStatusMatch[2], 10);
+      entry.plan_status = `${done}/${total}`;
+      if (done > 0 && done < total) entry.status = 'in_progress';
+    }
+    if (reqMatch) entry.requirements = reqMatch[1].replace(/[\[\]]/g, '').split(/[,\s]+/).filter(Boolean);
+    checklist[sectionPositions[i].num] = entry;
+  }
+
+  for (const entry of Object.values(checklist)) {
+    if (entry.status === 'complete') context.completed_phases.push(entry);
+    else if (entry.status === 'in_progress') context.in_progress_phases.push(entry);
+    else context.planned_phases.push(entry);
+  }
+}
+
+function appendRequirementsContext(context, filePath, project = null) {
+  const reqs = fs.readFileSync(filePath, 'utf8');
+  const rowRe = /\|\s*([A-Z][A-Z0-9-]+)\s*\|\s*Phase\s*([\d.]+)\s*\|\s*(Complete|Pending|In Progress)\s*\|/gi;
+  let m;
+  while ((m = rowRe.exec(reqs)) !== null) {
+    context.requirements.push({ id: m[1], phase: m[2], status: m[3], project });
+  }
+}
+
+function applyStateContext(context, filePath) {
+  const state = fs.readFileSync(filePath, 'utf8');
+  const phMatch = state.match(/\*\*Current Phase:\*\*\s*([\d.]+)/i)
+    || state.match(/Phase:\s*([\d.]+)\s*\(/);
+  if (phMatch && !context.current_phase) context.current_phase = phMatch[1];
+}
+
 function loadContext(paths, config = DEFAULT_CONFIG) {
   const context = {
     planned_phases: [],
@@ -253,79 +428,30 @@ function loadContext(paths, config = DEFAULT_CONFIG) {
     in_progress_phases: [],
     requirements: [],
     current_phase: null,
+    projects: (paths.projects || []).map(p => ({
+      name: p.name,
+      root: path.relative(paths.projectRoot, p.root || paths.projectRoot) || '.',
+      planning_dir: p.planning_dir || config.planning_dir || null,
+    })),
     reference_files: [],
   };
 
-  if (fs.existsSync(paths.roadmapPath)) {
-    const roadmap = fs.readFileSync(paths.roadmapPath, 'utf8');
-
-    // Extract the phase checklist (top-level summary list)
-    const checklistRe = /-\s*\[([ x])\]\s*\*\*Phase\s+([\d.]+)\s*:\s*([^*]+)\*\*\s*(?:-\s*([^\n]*))?/g;
-    const checklist = {};
-    let m;
-    while ((m = checklistRe.exec(roadmap)) !== null) {
-      const status = m[1] === 'x' ? 'complete' : 'planned';
-      const num = m[2].trim();
-      const name = m[3].trim();
-      const blurb = (m[4] || '').trim();
-      checklist[num] = { num, name, blurb, status };
-    }
-
-    // Extract detailed phase sections
-    const sectionRe = /^###\s+Phase\s+([\d.]+)\s*:\s*([^\n]+)$/gm;
-    const sectionPositions = [];
-    while ((m = sectionRe.exec(roadmap)) !== null) {
-      sectionPositions.push({ num: m[1].trim(), name: m[2].trim(), index: m.index });
-    }
-    for (let i = 0; i < sectionPositions.length; i++) {
-      const start = sectionPositions[i].index;
-      const end = i + 1 < sectionPositions.length ? sectionPositions[i + 1].index : roadmap.length;
-      const body = roadmap.slice(start, end);
-      const goalMatch = body.match(/\*\*Goal\*\*:\s*([^\n]+)/i);
-      const planStatusMatch = body.match(/\*\*Plans:?\*\*\s*(\d+)\s*\/\s*(\d+)/i);
-      const reqMatch = body.match(/\*\*Requirements\*\*:\s*([^\n]+)/i);
-      const entry = checklist[sectionPositions[i].num] || { num: sectionPositions[i].num, name: sectionPositions[i].name, status: 'planned' };
-      entry.name = sectionPositions[i].name;
-      if (goalMatch) entry.goal = goalMatch[1].trim();
-      if (planStatusMatch) {
-        const done = parseInt(planStatusMatch[1], 10);
-        const total = parseInt(planStatusMatch[2], 10);
-        entry.plan_status = `${done}/${total}`;
-        if (done > 0 && done < total) entry.status = 'in_progress';
-      }
-      if (reqMatch) entry.requirements = reqMatch[1].replace(/[\[\]]/g, '').split(/[,\s]+/).filter(Boolean);
-      checklist[sectionPositions[i].num] = entry;
-    }
-
-    // Bucket by status
-    for (const entry of Object.values(checklist)) {
-      if (entry.status === 'complete') context.completed_phases.push(entry);
-      else if (entry.status === 'in_progress') context.in_progress_phases.push(entry);
-      else context.planned_phases.push(entry);
-    }
+  for (const entry of paths.contextEntries || []) {
+    if (!entry.path || !fs.existsSync(entry.path) || !fs.statSync(entry.path).isFile()) continue;
+    if (entry.role === 'roadmap') appendRoadmapContext(context, entry.path, entry.project || null);
+    if (entry.role === 'requirements') appendRequirementsContext(context, entry.path, entry.project || null);
+    if (entry.role === 'state') applyStateContext(context, entry.path);
   }
 
-  if (fs.existsSync(paths.requirementsPath)) {
-    const reqs = fs.readFileSync(paths.requirementsPath, 'utf8');
-    const rowRe = /\|\s*([A-Z][A-Z0-9-]+)\s*\|\s*Phase\s*([\d.]+)\s*\|\s*(Complete|Pending|In Progress)\s*\|/gi;
-    let m;
-    while ((m = rowRe.exec(reqs)) !== null) {
-      context.requirements.push({ id: m[1], phase: m[2], status: m[3] });
-    }
-  }
-
-  if (fs.existsSync(paths.statePath)) {
-    const state = fs.readFileSync(paths.statePath, 'utf8');
-    const phMatch = state.match(/\*\*Current Phase:\*\*\s*([\d.]+)/i)
-      || state.match(/Phase:\s*([\d.]+)\s*\(/);
-    if (phMatch) context.current_phase = phMatch[1];
-  }
-
-  for (const filePath of paths.contextPaths || []) {
+  for (const entry of paths.contextEntries || []) {
+    const filePath = entry.path;
     if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) continue;
     const { text, truncated } = readTextLimited(filePath, config.max_context_chars_per_file);
     context.reference_files.push({
       path: path.relative(paths.projectRoot, filePath),
+      role: entry.role || 'context',
+      label: entry.label || path.basename(filePath),
+      project: entry.project || null,
       truncated,
       text,
     });
@@ -342,17 +468,119 @@ function sha256(content) {
 
 function readManifest(manifestPath) {
   if (!fs.existsSync(manifestPath)) {
-    return { active_file: 'WORKING.md', working: null, archives: [] };
+    return { version: 2, active_file: 'WORKING.md', working: null, archives: [] };
   }
   try {
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (!manifest.version) manifest.version = 1;
+    if (!Array.isArray(manifest.archives)) manifest.archives = [];
+    return manifest;
   } catch {
-    return { active_file: 'WORKING.md', working: null, archives: [] };
+    return { version: 2, active_file: 'WORKING.md', working: null, archives: [] };
   }
 }
 
 function writeManifest(manifestPath, data) {
   fs.writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n');
+}
+
+function stripStatusMarkup(line) {
+  return String(line || '')
+    .replace(/^\s*\*\*STATUS\*\*(?:\s*\[#\d+\])?\s*:\s*/i, '')
+    .trim();
+}
+
+function statusBucket(statusLine) {
+  const text = stripStatusMarkup(statusLine);
+  if (/^PARTIALLY TRACKED\b/i.test(text)) return 'PARTIALLY TRACKED';
+  if (/^NOT TRACKED\b/i.test(text)) return 'NOT TRACKED';
+  if (/^NEEDS TRIAGE\b/i.test(text)) return 'NEEDS TRIAGE';
+  if (/^TRACKED\b/i.test(text)) return 'TRACKED';
+  if (/^DONE\b/i.test(text)) return 'DONE';
+  if (/^DEFERRED\b/i.test(text)) return 'DEFERRED';
+  return text.split(/\s+/)[0] || 'UNKNOWN';
+}
+
+function escapeHtmlMarkerValue(value) {
+  return String(value || '').replace(/--/g, '- -');
+}
+
+function renderHtmlStatusMarker(id, statusLine) {
+  const payload = {
+    id,
+    status: statusBucket(statusLine),
+    text: stripStatusMarkup(statusLine),
+  };
+  return `<!-- NOTE-MARKER ${escapeHtmlMarkerValue(JSON.stringify(payload))} -->`;
+}
+
+function renderStatusLines(update, config = DEFAULT_CONFIG) {
+  const format = config.status_marker_format || 'markdown';
+  const statusLine = String(update.status_line || '').trim();
+  const lines = [];
+  if (format === 'markdown' || format === 'both') lines.push(statusLine);
+  if (format === 'html' || format === 'both') lines.push(renderHtmlStatusMarker(update.id, statusLine));
+  if (lines.length === 0) lines.push(statusLine);
+  return lines;
+}
+
+function extractStatusLines(text) {
+  return String(text || '').split('\n').filter(line =>
+    /\*\*STATUS\*\*(?:\s*\[#\d+\])?\s*:/i.test(line)
+    || /<!--\s*NOTE-MARKER\b/i.test(line)
+  );
+}
+
+function statusFromLine(statusLine) {
+  const htmlMatch = String(statusLine || '').match(/<!--\s*NOTE-MARKER\s+({.*})\s*-->/i);
+  if (htmlMatch) {
+    try {
+      const parsed = JSON.parse(htmlMatch[1]);
+      if (parsed.status) return parsed.status;
+    } catch {
+      // Fall through to text-based detection.
+    }
+  }
+  return statusBucket(statusLine);
+}
+
+function summarizeItems(items) {
+  const summarized = [];
+  const counts = {};
+  for (const item of items) {
+    const statusLines = extractStatusLines(item.text);
+    if (statusLines.length === 0) continue;
+    const statusLine = statusLines.find(line => /\*\*STATUS\*\*/i.test(line)) || statusLines[0];
+    const status = statusFromLine(statusLine);
+    counts[status] = (counts[status] || 0) + 1;
+    summarized.push({
+      id: item.id,
+      status,
+      heading_path: item.heading_path,
+      line: item.start_line + 1,
+      first_line: item.first_line.trim().slice(0, 160),
+      status_line: statusLine.trim(),
+    });
+  }
+  return { items: summarized, status_counts: counts };
+}
+
+function buildManifestWorking(projectRoot, paths, workingFile, content, options = {}) {
+  const items = parseItems(content);
+  const summary = summarizeItems(items);
+  return {
+    file: path.relative(paths.notesDir, workingFile),
+    path: path.relative(projectRoot, workingFile),
+    hash: sha256(content),
+    item_count: items.length,
+    reviewed: summary.items.length,
+    unreviewed: items.filter(i => !i.reviewed).length,
+    status_counts: summary.status_counts,
+    items: summary.items,
+    reference_files: options.reference_files || [],
+    projects: options.projects || [],
+    last_reviewed: options.last_reviewed === undefined ? new Date().toISOString() : options.last_reviewed,
+  };
 }
 
 module.exports = {
@@ -365,4 +593,7 @@ module.exports = {
   sha256,
   readManifest,
   writeManifest,
+  renderStatusLines,
+  summarizeItems,
+  buildManifestWorking,
 };

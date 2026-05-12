@@ -6,13 +6,16 @@
   "manifest_file": "MANIFEST.json",
   "archive_dir": "archive",
   "archive_name_template": "{MM}-{DD}_phase{phase}.md",
+  "status_marker_format": "markdown",
   "planning_dir": ".planning",
   "project_file": "PROJECT.md",
   "roadmap_file": "ROADMAP.md",
   "requirements_file": "REQUIREMENTS.md",
   "state_file": "STATE.md",
   "phases_dir": "phases",
+  "planning_files": [],
   "context_files": [],
+  "projects": [],
   "max_context_chars_per_file": 20000,
   "archive_keep": 5
 }

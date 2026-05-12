@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { loadConfig, resolvePaths, writeManifest } = require('./lib');
+const { loadConfig, resolvePaths, loadContext, writeManifest, buildManifestWorking } = require('./lib');
 
 function parseArgs(argv) {
   const args = {};
@@ -51,9 +51,30 @@ function main() {
   }
 
   if (!fs.existsSync(paths.manifestFile) || args.force) {
+    const workingContent = fs.existsSync(paths.workingFile)
+      ? fs.readFileSync(paths.workingFile, 'utf8')
+      : '';
+    const context = loadContext(paths, config);
     writeManifest(paths.manifestFile, {
+      version: 2,
       active_file: path.basename(paths.workingFile),
-      working: { item_count: 0, unreviewed: 0, last_reviewed: null, hash: null },
+      config: {
+        config_file: paths.configPath ? path.relative(projectRoot, paths.configPath) : null,
+        status_marker_format: config.status_marker_format,
+        notes_dir: path.relative(projectRoot, paths.notesDir),
+        planning_dir: paths.planningDir ? path.relative(projectRoot, paths.planningDir) : null,
+      },
+      working: buildManifestWorking(projectRoot, paths, paths.workingFile, workingContent, {
+        reference_files: context.reference_files.map(f => ({
+          path: f.path,
+          role: f.role,
+          label: f.label,
+          project: f.project,
+          truncated: f.truncated,
+        })),
+        projects: context.projects,
+        last_reviewed: null,
+      }),
       archives: [],
     });
     created.push(path.relative(projectRoot, paths.manifestFile));

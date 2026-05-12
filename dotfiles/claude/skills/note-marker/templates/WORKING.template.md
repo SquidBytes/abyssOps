@@ -11,7 +11,8 @@
   4. Use `## <heading>` for date or section markers (e.g. `## 11 April 2026`
      or `## After Phase 25`). The agent uses headings as classification
      context.
-  5. Don't write the STATUS line yourself — the agent adds it.
+  5. Don't write the STATUS line or NOTE-MARKER HTML comment yourself — the
+     agent adds it.
   6. Anything inside an HTML comment block is skipped by the parser, so
      you can leave yourself non-reviewable notes that way.
 
