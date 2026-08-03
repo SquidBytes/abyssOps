@@ -78,3 +78,4 @@ Usage:
 |-----------|-------------|
 | [Note Marker](note-marker.md) | Configurable Claude Code skill for marking testing notes |
 | [Claude Statuslines](claude-statuslines.md) | Plain and GSD Claude Code statusline hooks |
+| [GSD Rebuild Inventory](gsd-rebuild-inventory.md) | What stock GSD was actually used for, the custom layer, and the rebuild decisions |
